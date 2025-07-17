@@ -1,20 +1,17 @@
 from flask import Flask, jsonify, request
+from instagram_scraper import scrape_public_profile  # replace with actual filename
 
 app = Flask(__name__)
 
-@app.route('/name', methods=['GET'])
-def get_name():
-    return jsonify({"name": "John Doe"})
-
 @app.route('/instaData', methods=['GET'])
 def get_insta_data():
-    username = request.args.get('username')  # Get the 'username' parameter from the query string
-    number_of_posts = request.args.get('number_of_posts', default=10)  # Default to 10 if not provided
+    username = request.args.get('username')
+
     if not username:
         return jsonify({"error": "Username parameter is required"}), 400
-    return jsonify({"username": username, "message": f"Data for {username}", "posts": number_of_posts})
 
-
+    data = scrape_public_profile(username)
+    return jsonify(data)
 
 if __name__ == '__main__':
     app.run(debug=True)
