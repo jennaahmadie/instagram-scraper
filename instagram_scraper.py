@@ -1,18 +1,19 @@
 import instaloader
-from datetime import datetime
+import os
+from datetime import datetime;
+from dotenv import load_dotenv
 
-def scrape_public_profile(username):
+load_dotenv()
+
+INSTA_USERNAME = os.getenv("INSTA_USERNAME")
+INSTA_PASSWORD = os.getenv("INSTA_PASSWORD")
+
+
+def get_authenticated_loader():
     """
-    Scrapes basic public profile data from Instagram without login.
-
-    Args:
-        username (str): Instagram username (without @)
-
-    Returns:
-        dict: Basic profile information or error message
+    Returns an Instaloader object that's logged in using environment variables.
+    If session file exists, reuse it.
     """
-    username = username.lstrip('@')
-
     loader = instaloader.Instaloader(
         download_pictures=False,
         download_videos=False,
@@ -24,9 +25,31 @@ def scrape_public_profile(username):
     )
 
     try:
+        # Try to load existing session file
+        loader.load_session_from_file(INSTA_USERNAME)
+    except Exception:
+        # Fallback to login if session file doesn't exist
+        print("🔐 Logging in fresh with username and password...")
+        loader.login(INSTA_USERNAME, INSTA_PASSWORD)
+        loader.save_session_to_file()
+
+    return loader
+
+def scrape_full_profile(username, number_of_posts=3):
+    """
+    Uses authenticated session to fetch full post + profile data.
+    """
+    username = username.lstrip('@')
+    loader = get_authenticated_loader()
+
+    try:
         profile = instaloader.Profile.from_username(loader.context, username)
 
-        return {
+        if profile.is_private and not profile.followed_by_viewer:
+            return {"error": "Private profile. You must follow the account to access posts."}
+
+        # Profile info
+        data = {
             'username': profile.username,
             'full_name': profile.full_name,
             'followers': profile.followers,
@@ -35,12 +58,29 @@ def scrape_public_profile(username):
             'is_private': profile.is_private,
             'is_verified': profile.is_verified,
             'timestamp': datetime.now().isoformat(),
-            'note': "Post-level data unavailable without login"
         }
 
+        # Post analytics
+        posts_data = []
+        for i, post in enumerate(profile.get_posts()):
+            if i >= number_of_posts:
+                break
+            posts_data.append({
+                'shortcode': post.shortcode,
+                'url': f"https://www.instagram.com/p/{post.shortcode}/",
+                'likes': post.likes,
+                'comments': post.comments,
+                'caption': post.caption[:100] if post.caption else "",
+                'is_video': post.is_video,
+                'date': post.date.isoformat()[:10]
+            })
+
+        data["posts"] = posts_data
+        return data
+
     except instaloader.exceptions.ProfileNotExistsException:
-        return {"error": f"Profile '{username}' not found"}
-    except instaloader.exceptions.QueryReturnedNotFoundException:
-        return {"error": f"Instagram blocked unauthenticated access for '{username}'"}
+        return {"error": "Profile does not exist"}
+    except instaloader.exceptions.LoginRequiredException:
+        return {"error": "Login required. Credentials may be invalid or blocked."}
     except Exception as e:
         return {"error": str(e)}
